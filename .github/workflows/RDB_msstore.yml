@@ -33,9 +33,11 @@ jobs:
     - name: Enable RDP User Authentication
       run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
 
-    # ⚙️ Cài ngrok từ Microsoft Store thay vì tải từ bin.equinox.io
-    - name: Install ngrok from Microsoft Store
-      run: winget install ngrok.ngrok -s msstore --accept-source-agreements --accept-package-agreements
+    - name: Install ngrok
+      run: winget install ngrok.ngrok --accept-source-agreements --accept-package-agreements
+
+    - name: Verify ngrok install
+      run: ngrok version
 
     - name: Auth
       run: ngrok config add-authtoken $Env:NGROK_AUTH_TOKEN

@@ -1,4 +1,4 @@
-name: RDB
+name: RDB_msstore
 
 on: workflow_dispatch
 

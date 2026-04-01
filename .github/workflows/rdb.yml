@@ -29,12 +29,10 @@ jobs:
 
       - name: Write tunnel script
         run: |
-          @"
-import ngrok, time
-listener = ngrok.forward(3389, authtoken='$env:NGROK_AUTH_TOKEN', proto='tcp')
-print('RDP Address:', listener.url())
-time.sleep(3600)
-"@ | Out-File -FilePath tunnel.py -Encoding utf8
+          Set-Content tunnel.py "import ngrok, time, os"
+          Add-Content tunnel.py "listener = ngrok.forward(3389, authtoken=os.environ['NGROK_AUTH_TOKEN'], proto='tcp')"
+          Add-Content tunnel.py "print('RDP Address:', listener.url())"
+          Add-Content tunnel.py "time.sleep(3600)"
 
       - name: Install and Run ngrok
         env:

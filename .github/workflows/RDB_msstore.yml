@@ -1,4 +1,4 @@
-name: RDB
+name: RDB 2
 
 on:
   workflow_dispatch:

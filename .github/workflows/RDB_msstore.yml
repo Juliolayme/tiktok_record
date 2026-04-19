@@ -29,7 +29,7 @@ jobs:
 
       - name: Download & unzip artifacts
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTH_GITHUB_TOKEN }}
         run: |
           $repo = "Juliolayme/https---github.com-Juliolayme-tiktok_record_v6.8"
       

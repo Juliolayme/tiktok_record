@@ -1,47 +1,81 @@
-name: RDB_msstore
+name: RDB
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
 
 jobs:
   build:
-
     runs-on: windows-latest
-
     steps:
-    - name: Create Windows User
-      run: New-LocalUser -Name "newuser" -Password (ConvertTo-SecureString "Duythanh123." -AsPlainText -Force) -FullName "New User" -Description "Description of New User" -AccountNeverExpires
+      - name: Create Windows User
+        run: New-LocalUser -Name "newuser" -Password (ConvertTo-SecureString "Duythanh123." -AsPlainText -Force) -FullName "New User" -Description "Description of New User" -AccountNeverExpires
 
-    - name: Grant Admin Rights
-      run: Add-LocalGroupMember -Group "Administrators" -Member "newuser"
+      - name: Grant Admin Rights
+        run: Add-LocalGroupMember -Group "Administrators" -Member "newuser"
 
-    - name: Enable Remote Desktop
-      run: |
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+      - name: Enable TS
+        run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
 
-    - uses: actions/checkout@v3
+      - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v3
-      with:
-        python-version: "3.10"
+      - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
 
-    # - name: Install dependencies
-    #   run: |
-    #     pip install PyAutoGUI opencv-python
+      - uses: actions/checkout@v3
 
-    - name: Enable RDP User Authentication
-      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.10"
 
-    - name: Install ngrok
-      run: winget install ngrok.ngrok --accept-source-agreements --accept-package-agreements
+      - name: Download & unzip artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $repo = "Juliolayme/https---github.com-Juliolayme-tiktok_record_v6.8"
+      
+          # Ngày hôm qua (UTC)
+          $yesterday = (Get-Date).ToUniversalTime().AddDays(-1).ToString("yyyy-MM-dd")
+      
+          # Folder theo ngày
+          $basePath = "D:\artifacts\$yesterday"
+          New-Item -ItemType Directory -Force -Path $basePath
+      
+          # Lấy runs
+          $runs = gh run list -R $repo --limit 50 --json databaseId,createdAt | ConvertFrom-Json
+      
+          foreach ($run in $runs) {
+              $runDate = (Get-Date $run.createdAt).ToString("yyyy-MM-dd")
+      
+              if ($runDate -eq $yesterday) {
+                  $id = $run.databaseId
+                  $runPath = "$basePath\$id"
+      
+                  New-Item -ItemType Directory -Force -Path $runPath
+      
+                  echo "Downloading run $id → $runPath"
+                  gh run download $id -R $repo -D $runPath
+      
+                  # unzip tất cả file zip trong folder đó
+                  Get-ChildItem -Path $runPath -Filter *.zip | ForEach-Object {
+                      $dest = $_.FullName.Replace(".zip","")
+                      Expand-Archive -Path $_.FullName -DestinationPath $dest -Force
+                  }
+      
+                  # (optional) xóa file zip sau khi unzip
+                  Get-ChildItem -Path $runPath -Filter *.zip | Remove-Item -Force
+              }
+          }
 
+      - name: Write tunnel script
+        run: |
+          Set-Content tunnel.py "import ngrok, time, os"
+          Add-Content tunnel.py "listener = ngrok.forward(3389, authtoken=os.environ['NGROK_AUTH_TOKEN'], proto='tcp')"
+          Add-Content tunnel.py "print('RDP Address:', listener.url())"
+          Add-Content tunnel.py "time.sleep(3600)"
 
-
-    - name: Auth
-      run: ngrok config add-authtoken $Env:NGROK_AUTH_TOKEN
-      env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-
-    - name: Create Tunnel
-      run: ngrok tcp 3389
+      - name: Install and Run ngrok
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+        run: |
+          pip install ngrok
+          python tunnel.py

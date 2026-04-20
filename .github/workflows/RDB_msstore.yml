@@ -6,19 +6,24 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
       - name: Create Windows User
-        run: New-LocalUser -Name "newuser" -Password (ConvertTo-SecureString "Duythanh123." -AsPlainText -Force) -FullName "New User" -Description "Description of New User" -AccountNeverExpires
+        run: |
+          New-LocalUser -Name "newuser" `
+          -Password (ConvertTo-SecureString "Duythanh123." -AsPlainText -Force) `
+          -FullName "New User" `
+          -Description "Description of New User" `
+          -AccountNeverExpires
 
       - name: Grant Admin Rights
         run: Add-LocalGroupMember -Group "Administrators" -Member "newuser"
 
-      - name: Enable TS
-        run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
-
-      - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-
-      - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+      - name: Enable Remote Desktop
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
 
       - uses: actions/checkout@v3
 
@@ -27,53 +32,53 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Download & unzip artifacts (parallel)
+      - name: Download & unzip artifacts (4 threads only)
         env:
           GH_TOKEN: ${{ secrets.AUTH_GITHUB_TOKEN }}
         run: |
           $repo = "Juliolayme/https---github.com-Juliolayme-tiktok_record_v6.8"
-      
-          # Ngày hôm qua (UTC)
+
+          # Lấy ngày hôm qua (UTC)
           $yesterday = (Get-Date).ToUniversalTime().AddDays(-1).ToString("yyyy-MM-dd")
-      
-          # Folder theo ngày
+
+          # Ép lưu về ổ D
           $basePath = "D:\artifacts\$yesterday"
-          New-Item -ItemType Directory -Force -Path $basePath
-      
-          # Lấy runs
+          New-Item -ItemType Directory -Force -Path $basePath | Out-Null
+
+          # Lấy danh sách runs
           $runs = gh run list -R $repo --limit 50 --json databaseId,createdAt | ConvertFrom-Json
-      
-          # Lọc run theo ngày trước
+
+          # Lọc run theo ngày hôm qua
           $filteredRuns = $runs | Where-Object {
               (Get-Date $_.createdAt).ToString("yyyy-MM-dd") -eq $yesterday
           }
-      
-          # Số luồng = số run (có thể giới hạn lại nếu cần)
-          $throttle = $filteredRuns.Count
-      
+
+          Write-Host "Total runs found: $($filteredRuns.Count)"
+
+          # Chạy song song tối đa 4 luồng
           $filteredRuns | ForEach-Object -Parallel {
               $repo = $using:repo
               $basePath = $using:basePath
-      
+
               $id = $_.databaseId
               $runPath = "$basePath\$id"
-      
+
               New-Item -ItemType Directory -Force -Path $runPath | Out-Null
-      
+
               Write-Host "Downloading run $id → $runPath"
-      
+
               gh run download $id -R $repo -D $runPath
-      
-              # unzip
+
+              # Giải nén
               Get-ChildItem -Path $runPath -Filter *.zip | ForEach-Object {
                   $dest = $_.FullName.Replace(".zip","")
                   Expand-Archive -Path $_.FullName -DestinationPath $dest -Force
               }
-      
-              # xóa zip
+
+              # Xóa file zip
               Get-ChildItem -Path $runPath -Filter *.zip | Remove-Item -Force
-      
-          } -ThrottleLimit $throttle
+
+          } -ThrottleLimit 4
 
       - name: Write tunnel script
         run: |

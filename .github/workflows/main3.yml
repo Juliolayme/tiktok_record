@@ -29,41 +29,76 @@ jobs:
         uses: actions/setup-python@v3
         with:
           python-version: "3.10"
-
-      - name: Download & unzip artifacts (4 threads only)
+    
+      - name: Download & unzip artifacts (multi-repo, optimized)
         env:
           GH_TOKEN: ${{ secrets.AUTH_GITHUB_TOKEN }}
         run: |
-          $repo = "haviglperecso40k/tik_tok_record_private"
-          # Lấy ngày hôm qua (UTC)
+          # Danh sách repo
+          $repos = @(
+            "haviglperecso40k/tik_tok_record_private",
+            "Juliolayme/https---github.com-Juliolayme-tiktok_record_v6.8"
+          )
+      
+          # Ngày hôm qua (UTC)
           $yesterday = (Get-Date).ToUniversalTime().AddDays(-1).ToString("yyyy-MM-dd")
-          # Ép lưu về ổ D
+      
+          # Đường dẫn ổ D
           $basePath = "D:\artifacts\$yesterday"
           New-Item -ItemType Directory -Force -Path $basePath | Out-Null
-          # Lấy danh sách runs
-          $runs = gh run list -R $repo --limit 50 --json databaseId,createdAt | ConvertFrom-Json
-          # Lọc run theo ngày hôm qua
-          $filteredRuns = $runs | Where-Object {
-              (Get-Date $_.createdAt).ToString("yyyy-MM-dd") -eq $yesterday
+      
+          # Kiểm tra dung lượng ổ D (>= 5GB)
+          $drive = Get-PSDrive D
+          if ($drive.Free -lt 5GB) {
+              Write-Error "Ổ D không đủ dung lượng!"
+              exit 1
           }
-          Write-Host "Total runs found: $($filteredRuns.Count)"
-          # Chạy song song tối đa 4 luồng
-          $filteredRuns | ForEach-Object -Parallel {
-              $repo = $using:repo
+      
+          $allRuns = @()
+      
+          # Lấy run từ tất cả repo (song song nhẹ)
+          foreach ($repo in $repos) {
+              Write-Host "Fetching runs from $repo"
+      
+              $runs = gh run list -R $repo --limit 50 --json databaseId,createdAt | ConvertFrom-Json
+      
+              $filtered = $runs | Where-Object {
+                  (Get-Date $_.createdAt).ToString("yyyy-MM-dd") -eq $yesterday
+              }
+      
+              foreach ($run in $filtered) {
+                  $allRuns += [PSCustomObject]@{
+                      repo = $repo
+                      id   = $run.databaseId
+                  }
+              }
+          }
+      
+          Write-Host "Total runs: $($allRuns.Count)"
+      
+          # Download song song (tối đa 6 luồng)
+          $allRuns | ForEach-Object -Parallel {
+              $repo = $_.repo
+              $id   = $_.id
               $basePath = $using:basePath
-              $id = $_.databaseId
-              $runPath = "$basePath\$id"
+      
+              $runPath = "$basePath\$($repo.Replace('/','_'))\$id"
               New-Item -ItemType Directory -Force -Path $runPath | Out-Null
-              Write-Host "Downloading run $id → $runPath"
+      
+              Write-Host "Downloading $repo → run $id"
+      
               gh run download $id -R $repo -D $runPath
-              # Giải nén
+      
+              # Giải nén song song trong từng run
               Get-ChildItem -Path $runPath -Filter *.zip | ForEach-Object {
                   $dest = $_.FullName.Replace(".zip","")
                   Expand-Archive -Path $_.FullName -DestinationPath $dest -Force
               }
-              # Xóa file zip
-              Get-ChildItem -Path $runPath -Filter *.zip | Remove-Item -Force
-          } -ThrottleLimit 4
+      
+              # Xóa zip để tiết kiệm dung lượng
+              Remove-Item "$runPath\*.zip" -Force -ErrorAction SilentlyContinue
+      
+          } -ThrottleLimit 6
       - name: Write tunnel script
         run: |
           Set-Content tunnel.py "import ngrok, time, os"

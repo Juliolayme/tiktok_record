@@ -1,0 +1,78 @@
+name: RDB 3
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Create Windows User
+        run: |
+          New-LocalUser -Name "newuser" `
+          -Password (ConvertTo-SecureString "Duythanh123." -AsPlainText -Force) `
+          -FullName "New User" `
+          -Description "Description of New User" `
+          -AccountNeverExpires
+      - name: Grant Admin Rights
+        run: Add-LocalGroupMember -Group "Administrators" -Member "newuser"
+
+      - name: Enable Remote Desktop
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+      - uses: actions/checkout@v3
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v3
+        with:
+          python-version: "3.10"
+
+      - name: Download & unzip artifacts (4 threads only)
+        env:
+          GH_TOKEN: ${{ secrets.AUTH_GITHUB_TOKEN }}
+        run: |
+          $repo = "haviglperecso40k/tik_tok_record_private"
+          # Lấy ngày hôm qua (UTC)
+          $yesterday = (Get-Date).ToUniversalTime().AddDays(-1).ToString("yyyy-MM-dd")
+          # Ép lưu về ổ D
+          $basePath = "D:\artifacts\$yesterday"
+          New-Item -ItemType Directory -Force -Path $basePath | Out-Null
+          # Lấy danh sách runs
+          $runs = gh run list -R $repo --limit 50 --json databaseId,createdAt | ConvertFrom-Json
+          # Lọc run theo ngày hôm qua
+          $filteredRuns = $runs | Where-Object {
+              (Get-Date $_.createdAt).ToString("yyyy-MM-dd") -eq $yesterday
+          }
+          Write-Host "Total runs found: $($filteredRuns.Count)"
+          # Chạy song song tối đa 4 luồng
+          $filteredRuns | ForEach-Object -Parallel {
+              $repo = $using:repo
+              $basePath = $using:basePath
+              $id = $_.databaseId
+              $runPath = "$basePath\$id"
+              New-Item -ItemType Directory -Force -Path $runPath | Out-Null
+              Write-Host "Downloading run $id → $runPath"
+              gh run download $id -R $repo -D $runPath
+              # Giải nén
+              Get-ChildItem -Path $runPath -Filter *.zip | ForEach-Object {
+                  $dest = $_.FullName.Replace(".zip","")
+                  Expand-Archive -Path $_.FullName -DestinationPath $dest -Force
+              }
+              # Xóa file zip
+              Get-ChildItem -Path $runPath -Filter *.zip | Remove-Item -Force
+          } -ThrottleLimit 4
+      - name: Write tunnel script
+        run: |
+          Set-Content tunnel.py "import ngrok, time, os"
+          Add-Content tunnel.py "listener = ngrok.forward(3389, authtoken=os.environ['NGROK_AUTH_TOKEN'], proto='tcp')"
+          Add-Content tunnel.py "print('RDP Address:', listener.url())"
+          Add-Content tunnel.py "time.sleep(36000)"
+      - name: Install and Run ngrok
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+        run: |
+          pip install ngrok
+          python tunnel.py

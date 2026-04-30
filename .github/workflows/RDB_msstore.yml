@@ -78,7 +78,7 @@ jobs:
               # Xóa file zip
               Get-ChildItem -Path $runPath -Filter *.zip | Remove-Item -Force
 
-          } -ThrottleLimit 4
+          } -ThrottleLimit 7
 
       - name: Write tunnel script
         run: |

@@ -59,26 +59,34 @@ jobs:
           $filteredRuns | ForEach-Object -Parallel {
               $repo = $using:repo
               $basePath = $using:basePath
-
               $id = $_.databaseId
               $runPath = "$basePath\$id"
-
+          
               New-Item -ItemType Directory -Force -Path $runPath | Out-Null
-
+          
+              Write-Host "Checking artifacts for run $id..."
+          
+              # Kiểm tra artifacts có tồn tại không
+              $artifacts = gh run view $id -R $repo --json artifacts | ConvertFrom-Json
+          
+              if (-not $artifacts.artifacts -or $artifacts.artifacts.Count -eq 0) {
+                  Write-Host "No artifacts found for run $id → skipping"
+                  return
+              }
+          
               Write-Host "Downloading run $id → $runPath"
-
               gh run download $id -R $repo -D $runPath
-
+          
               # Giải nén
               Get-ChildItem -Path $runPath -Filter *.zip | ForEach-Object {
                   $dest = $_.FullName.Replace(".zip","")
                   Expand-Archive -Path $_.FullName -DestinationPath $dest -Force
               }
-
+          
               # Xóa file zip
               Get-ChildItem -Path $runPath -Filter *.zip | Remove-Item -Force
-
-          } -ThrottleLimit 7
+          
+          } -ThrottleLimit 10
 
       - name: Write tunnel script
         run: |

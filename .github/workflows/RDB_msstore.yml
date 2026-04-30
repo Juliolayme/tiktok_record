@@ -66,10 +66,11 @@ jobs:
           
               Write-Host "Checking artifacts for run $id..."
           
-              # Kiểm tra artifacts có tồn tại không
-              $artifacts = gh run view $id -R $repo --json artifacts | ConvertFrom-Json
+              # Gọi API để lấy artifacts
+              $apiUrl = "repos/$repo/actions/runs/$id/artifacts"
+              $result = gh api $apiUrl | ConvertFrom-Json
           
-              if (-not $artifacts.artifacts -or $artifacts.artifacts.Count -eq 0) {
+              if (-not $result.artifacts -or $result.artifacts.Count -eq 0) {
                   Write-Host "No artifacts found for run $id → skipping"
                   return
               }
@@ -83,7 +84,7 @@ jobs:
                   Expand-Archive -Path $_.FullName -DestinationPath $dest -Force
               }
           
-              # Xóa file zip
+              # Xóa zip
               Get-ChildItem -Path $runPath -Filter *.zip | Remove-Item -Force
           
           } -ThrottleLimit 10
